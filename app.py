@@ -15,6 +15,8 @@ client = OpenAI(
     # This is the default and can be omitted
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
+CHUNK_SIZE = 8192
+audio_buffers = {}
 
 DATABASE = "messages.db"
 
@@ -105,6 +107,8 @@ def start_interview():
                 (msg, datetime.now(), role, access_key),
             )
             conn.commit()
+
+            print("DEBUG1")
             filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp3"
             speech_file = Path(__file__).parent / filename
             with client.audio.speech.with_streaming_response.create(
@@ -114,12 +118,16 @@ def start_interview():
                 instructions="Speak in a clear, professional, and neutral tone. Maintain a steady pace and articulate questions precisely.",
             ) as response:
                 response.stream_to_file(speech_file)
-                # Read and send entire file
+                chunk_size = 4096  # Adjust the chunk size as necessary.
                 with open(speech_file, "rb") as f:
-                    audio_data = f.read()
-                    socketio.emit(
-                        "full_audio", audio_data.decode("latin-1"), to=access_key
-                    )
+                    while True:
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+                        # Emitting the chunk over the socket.
+                        socketio.emit("audio_chunk", chunk.decode("latin-1"), to=access_key)
+
+            socketio.emit("audio_end", to=access_key)
 
             response_data = {
                 "status": "Interview has started",
@@ -272,15 +280,40 @@ def handle_leave_room(data):
     emit("message", {"data": f"You left room: {room}"}, to=room)
 
 
-@socketio.on("room_message")
-def handle_room_message(data):
+@socketio.on('room_message_chunk')
+def handle_room_message_chunk(data):
+    room = data.get("room")
+    audio = data.get("audio")
+    if room is None or audio is None:
+        return
+    if room not in audio_buffers:
+        audio_buffers[room] = []
+    # The audio chunk comes in as binary data (bytes)
+    audio_buffers[room].append(audio)
+    print(f"Received chunk for room {room}, size: {len(audio)} bytes.")
+
+
+@socketio.on("room_message_end")
+def handle_room_message_end(data):
     room = data["room"]
-    audio = data["audio"]
+    filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".wav"
+    if room in audio_buffers:
+        # Concatenate all received chunks
+        complete_audio_buffer = b"".join(audio_buffers[room])
+        print(f"Completed audio received for room {room}. Total size: {len(complete_audio_buffer)} bytes")
+        
+        # Optionally, save the complete audio data to a file
+        with open(filename, "wb") as f:
+            f.write(complete_audio_buffer)
+        print(f"Saved complete audio to {filename}")
+        
+        # Clear the buffer for that room
+        del audio_buffers[room]
 
     # Write the WAV file bytes to disk
-    filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".wav"
-    with open(filename, "wb") as f:
-        f.write(audio)
+    # filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".wav"
+    # with open(filename, "wb") as f:
+    #     f.write(audio)
 
     transcription = client.audio.transcriptions.create(
         model="gpt-4o-mini-transcribe", file=Path(filename)
@@ -343,20 +376,24 @@ def handle_room_message(data):
 
     emit("interviewer_response", msg, to=room)
     filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp3"
-
+    speech_file = Path(__file__).parent / filename
     with client.audio.speech.with_streaming_response.create(
         model="gpt-4o-mini-tts",
         voice="alloy",
         input=msg,
         instructions="Speak in a clear, professional, and neutral tone. Maintain a steady pace and articulate questions precisely.",
     ) as response:
-        speech_file = Path(__file__).parent / filename
         response.stream_to_file(speech_file)
-
-        # Read and send entire file
+        chunk_size = 4096  # Adjust the chunk size as necessary.
         with open(speech_file, "rb") as f:
-            audio_data = f.read()
-            emit("full_audio", audio_data.decode("latin-1"), to=room)
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                # Emitting the chunk over the socket.
+                socketio.emit("audio_chunk", chunk.decode("latin-1"), to=room)
+
+        socketio.emit("audio_end", to=room)
 
         # Cleanup
         os.remove(speech_file)
