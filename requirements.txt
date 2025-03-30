@@ -1,0 +1,8 @@
+flask
+flask-socketio
+openai
+python-dotenv
+pathlib
+websocket-client
+ffmpeg
+gunicorn
