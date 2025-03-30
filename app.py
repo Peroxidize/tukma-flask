@@ -15,10 +15,11 @@ client = OpenAI(
     # This is the default and can be omitted
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
-CHUNK_SIZE = 8192
+CHUNK_SIZE = 4096
 audio_buffers = {}
 
 DATABASE = "messages.db"
+
 
 # Function to initialize the database
 def init_db():
@@ -65,9 +66,10 @@ def start_interview():
     print(access_key)
     print(prompt)
 
+    print("DEBUG1")
     if not access_key or not prompt:
         return jsonify({"error": "incomplete params"}), 400
-
+    print("DEBUG2")
     try:
         # Connect to the database
         with sqlite3.connect(DATABASE) as conn:
@@ -77,10 +79,10 @@ def start_interview():
                 "SELECT id FROM interview_status WHERE access_key = ?", (access_key,)
             )
             existing_record = cursor.fetchone()
-
+            print("DEBUG3")
             if existing_record:
                 return jsonify({"message": "access key already exists"}), 400
-
+            print("DEBUG4")
             cursor.execute(
                 """
                     INSERT INTO interview_status (access_key, status)
@@ -90,12 +92,13 @@ def start_interview():
             )
             conn.commit()
             print(f"New record inserted with access key: {access_key}")
-
+            print("DEBUG5")
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "system", "content": prompt}],
             )
 
+            print("DEBUG6")
             role = "system"
             msg = response.choices[0].message.content
             print(msg)
@@ -108,7 +111,7 @@ def start_interview():
             )
             conn.commit()
 
-            print("DEBUG1")
+            print("DEBUG7")
             filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp3"
             speech_file = Path(__file__).parent / filename
             with client.audio.speech.with_streaming_response.create(
@@ -119,16 +122,21 @@ def start_interview():
             ) as response:
                 response.stream_to_file(speech_file)
                 chunk_size = 4096  # Adjust the chunk size as necessary.
+                print("DEBUG8")
                 with open(speech_file, "rb") as f:
                     while True:
                         chunk = f.read(chunk_size)
                         if not chunk:
                             break
                         # Emitting the chunk over the socket.
-                        socketio.emit("audio_chunk", chunk.decode("latin-1"), to=access_key)
+                        socketio.emit(
+                            "audio_chunk", chunk.decode("latin-1"), to=access_key
+                        )
+                        print("DEBUG9")
 
             socketio.emit("audio_end", to=access_key)
 
+            print("DEBUG10")
             response_data = {
                 "status": "Interview has started",
                 "message": msg,
@@ -280,7 +288,7 @@ def handle_leave_room(data):
     emit("message", {"data": f"You left room: {room}"}, to=room)
 
 
-@socketio.on('room_message_chunk')
+@socketio.on("room_message_chunk")
 def handle_room_message_chunk(data):
     room = data.get("room")
     audio = data.get("audio")
@@ -300,20 +308,17 @@ def handle_room_message_end(data):
     if room in audio_buffers:
         # Concatenate all received chunks
         complete_audio_buffer = b"".join(audio_buffers[room])
-        print(f"Completed audio received for room {room}. Total size: {len(complete_audio_buffer)} bytes")
-        
+        print(
+            f"Completed audio received for room {room}. Total size: {len(complete_audio_buffer)} bytes"
+        )
+
         # Optionally, save the complete audio data to a file
         with open(filename, "wb") as f:
             f.write(complete_audio_buffer)
         print(f"Saved complete audio to {filename}")
-        
+
         # Clear the buffer for that room
         del audio_buffers[room]
-
-    # Write the WAV file bytes to disk
-    # filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".wav"
-    # with open(filename, "wb") as f:
-    #     f.write(audio)
 
     transcription = client.audio.transcriptions.create(
         model="gpt-4o-mini-transcribe", file=Path(filename)
@@ -346,6 +351,8 @@ def handle_room_message_end(data):
 
         messages = cursor.fetchall()
 
+    fetch_message("user_message", room)
+
     history = []
 
     for message in messages:
@@ -374,7 +381,6 @@ def handle_room_message_end(data):
 
     conn.commit()
 
-    emit("interviewer_response", msg, to=room)
     filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp3"
     speech_file = Path(__file__).parent / filename
     with client.audio.speech.with_streaming_response.create(
@@ -395,8 +401,53 @@ def handle_room_message_end(data):
 
         socketio.emit("audio_end", to=room)
 
+        fetch_message("system_message", room)
+
         # Cleanup
         os.remove(speech_file)
+
+def fetch_message(name, room):
+    conn = None
+    try:
+        conn = sqlite3.connect("messages.db")
+        cursor = conn.cursor()
+
+        # Retrieve all messages
+        cursor.execute(
+            """
+            SELECT id, content, date_created, role 
+            FROM messages 
+            WHERE access_key = ?
+            ORDER BY date_created ASC
+            """,
+            (room,),
+        )
+
+        # Format the response
+        messages = [
+            {
+                "id": row[0],
+                "content": row[1],
+                "timestamp": row[2],
+                "role": row[3],  # 'user' or 'assistant' typically
+            }
+            for row in cursor.fetchall()
+        ]
+
+        socketio.emit(name, messages, to=room)
+
+    except sqlite3.Error as e:
+        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
+
+    except Exception as e:
+        return (
+            jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}),
+            500,
+        )
+
+    finally:
+        if conn:
+            conn.close()
 
 
 if __name__ == "__main__":
