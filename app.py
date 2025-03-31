@@ -66,10 +66,8 @@ def start_interview():
     print(access_key)
     print(prompt)
 
-    print("DEBUG1")
     if not access_key or not prompt:
         return jsonify({"error": "incomplete params"}), 400
-    print("DEBUG2")
     try:
         # Connect to the database
         with sqlite3.connect(DATABASE) as conn:
@@ -79,10 +77,9 @@ def start_interview():
                 "SELECT id FROM interview_status WHERE access_key = ?", (access_key,)
             )
             existing_record = cursor.fetchone()
-            print("DEBUG3")
             if existing_record:
                 return jsonify({"message": "access key already exists"}), 400
-            print("DEBUG4")
+
             cursor.execute(
                 """
                     INSERT INTO interview_status (access_key, status)
@@ -91,14 +88,22 @@ def start_interview():
                 (access_key, 0),
             )
             conn.commit()
+
+            cursor.execute(
+                """
+                INSERT INTO messages (content, date_created, role, access_key)
+                VALUES (?, ?, ?, ?)
+            """,
+                (prompt, datetime.now(), "system", access_key),
+            )
+            conn.commit()
+
             print(f"New record inserted with access key: {access_key}")
-            print("DEBUG5")
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "system", "content": prompt}],
             )
 
-            print("DEBUG6")
             role = "system"
             msg = response.choices[0].message.content
             print(msg)
@@ -111,7 +116,6 @@ def start_interview():
             )
             conn.commit()
 
-            print("DEBUG7")
             filename = datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp3"
             speech_file = Path(__file__).parent / filename
             with client.audio.speech.with_streaming_response.create(
@@ -122,7 +126,6 @@ def start_interview():
             ) as response:
                 response.stream_to_file(speech_file)
                 chunk_size = 4096  # Adjust the chunk size as necessary.
-                print("DEBUG8")
                 with open(speech_file, "rb") as f:
                     while True:
                         chunk = f.read(chunk_size)
@@ -132,11 +135,9 @@ def start_interview():
                         socketio.emit(
                             "audio_chunk", chunk.decode("latin-1"), to=access_key
                         )
-                        print("DEBUG9")
 
             socketio.emit("audio_end", to=access_key)
 
-            print("DEBUG10")
             response_data = {
                 "status": "Interview has started",
                 "message": msg,
