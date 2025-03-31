@@ -15,7 +15,7 @@ client = OpenAI(
     # This is the default and can be omitted
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
-CHUNK_SIZE = 4096
+CHUNK_SIZE = 512
 audio_buffers = {}
 
 DATABASE = "messages.db"
