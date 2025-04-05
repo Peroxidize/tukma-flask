@@ -13,6 +13,7 @@ client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
+init_db()
 
 @app.route("/start_interview", methods=["POST"])
 def start_interview():
@@ -46,6 +47,7 @@ def start_interview():
 
     response_data = {
         "status": "Interview has started",
+        "system": msg,
     }
 
     return jsonify(response_data), 200
@@ -53,7 +55,8 @@ def start_interview():
 
 @app.route("/get_messages/<access_key>/<name>/<email>", methods=["GET"])
 def messages(access_key, name, email):
-    return get_messages(access_key, name, email)
+    access_key, messages = get_messages(access_key, name, email)
+    return jsonify({"status": "success", "acces_key": access_key, "message_count": 0, "messages": messages})
 
 
 @app.route("/get_applicants/<access_key>", methods=["GET"])
@@ -73,6 +76,7 @@ def reply():
      # Basic validation
     variables = [access_key, name, email, message]
     for var in variables:
+        print(var)
         if not var:
             return jsonify({"error": "incomplete params"}), 400
 
@@ -89,7 +93,7 @@ def reply():
 
         insert_msg(content, access_key, "system", name, email)
 
-        return jsonify({"system": response}), 200
+        return jsonify({"system": content}), 200
 
     except Exception as e:
         # Handle potential API errors
@@ -100,5 +104,4 @@ def reply():
 
 if __name__ == "__main__":
     # Initialize the database when the app starts
-    init_db()
     socketio.run(app, debug=True)

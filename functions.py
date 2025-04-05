@@ -4,24 +4,32 @@ import sqlite3
 
 DATABASE = "messages.db"
 
-# Function to initialize the database
 def init_db():
-    with sqlite3.connect(DATABASE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL,
-                date_created TIMESTAMP NOT NULL,
-                role TEXT NOT NULL,
-                access_key TEXT NOT NULL,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL,
+    conn = None # Initialize conn outside try for the finally block
+    try:
+        # Use a specific path for the database
+        with sqlite3.connect(DATABASE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    date_created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- Added default
+                    role TEXT NOT NULL,
+                    access_key TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL -- Removed the trailing comma
+                )
+                """
             )
-        """
-        )
-        conn.commit()
+            # Commit is generally good practice after DDL (Data Definition Language) like CREATE TABLE
+            conn.commit()
+
+    except sqlite3.Error as e:
+        print(f"Database error during init_db: {e}")
+        # Re-raise the exception or handle it as appropriate for your app
+        raise
 
 
 def insert_msg(content, access_key, role, name, email):
@@ -42,9 +50,8 @@ def check_record(access_key, name, email):
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT 1 FROM interview_status 
+            SELECT id FROM messages 
             WHERE access_key = ? AND email = ? AND name = ?
-            LIMIT 1
         """, (access_key, email, name))
         existing_record = cursor.fetchone()
 
@@ -68,21 +75,6 @@ def get_messages(access_key, name, email):
             (access_key, email, name),
         )
 
-        # Use fetchall inside the 'with' block
-        rows = cursor.fetchall() 
-
-        # Check if any messages were found *after* fetching
-        if not rows:
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "No messages found for this access key, name, and email combination.",
-                    }
-                ),
-                404,
-            )
-
         # Format the response
         messages = [
             {
@@ -91,17 +83,10 @@ def get_messages(access_key, name, email):
                 "timestamp": row[2],
                 "role": row[3],  # 'user' or 'assistant' typically
             }
-            for row in rows
+            for row in cursor.fetchall()
         ]
 
-        return jsonify(
-            {
-                "status": "success",
-                "access_key": access_key,
-                "message_count": len(messages),
-                "messages": messages,
-            }, 200
-        )
+        return access_key, messages
 
         
 def get_history(access_key, name, email):
