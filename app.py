@@ -80,7 +80,7 @@ def get_messages():
 
     insert_msg(response, access_key, "system", name, email)
 
-    return jsonify({"status": "successfully replied"}), 200
+    return jsonify({"system": response}), 200
 
     
 
