@@ -1,11 +1,8 @@
-from flask import Flask, request, jsonify, render_template
-from flask_socketio import SocketIO, emit, join_room, leave_room
-from datetime import datetime
+from flask import Flask, request, jsonify
+from flask_socketio import SocketIO
 from openai import OpenAI
-from pathlib import Path
-from io import BytesIO
 from dotenv import load_dotenv
-import sqlite3, os, io, json
+import os
 from functions import check_record, init_db, insert_msg, get_messages, get_history, get_applicants
 
 load_dotenv()
@@ -65,7 +62,7 @@ def applicants(access_key):
 
 
 @app.route("/reply", methods=["POST"])
-def get_messages():
+def reply():
     data = request.get_json()
 
     access_key = data.get("accessKey")
@@ -73,14 +70,31 @@ def get_messages():
     email = data.get("email")
     message = data.get("message")
 
+     # Basic validation
+    variables = [access_key, name, email, message]
+    for var in variables:
+        if not var:
+            return jsonify({"error": "incomplete params"}), 400
+
     insert_msg(message, access_key, "user", name, email)
 
     messages = get_history(access_key, name, email)
-    response = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+    if not messages:
+         return jsonify({"error": "Cannot reply, no interview history found."}), 404
 
-    insert_msg(response, access_key, "system", name, email)
+    try:
+        response = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
 
-    return jsonify({"system": response}), 200
+        content = response.choices[0].message.content
+
+        insert_msg(content, access_key, "system", name, email)
+
+        return jsonify({"system": response}), 200
+
+    except Exception as e:
+        # Handle potential API errors
+        print(f"Error calling OpenAI or processing reply: {e}") # Log error
+        return jsonify({"error": "Failed to get response from AI"}), 500
 
     
 

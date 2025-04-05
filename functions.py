@@ -15,9 +15,9 @@ def init_db():
                 content TEXT NOT NULL,
                 date_created TIMESTAMP NOT NULL,
                 role TEXT NOT NULL,
-                access_key TEXT NOT NULL
-                name TEXT NOT NULL
-                email TEXT NOT NULL
+                access_key TEXT NOT NULL,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
             )
         """
         )
@@ -30,7 +30,7 @@ def insert_msg(content, access_key, role, name, email):
         cursor.execute(
             """
             INSERT INTO messages (content, date_created, role, access_key, name, email)
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
             (content, datetime.now(), role, access_key, name, email),
         )
@@ -42,37 +42,20 @@ def check_record(access_key, name, email):
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT id FROM interview_status 
+            SELECT 1 FROM interview_status 
             WHERE access_key = ? AND email = ? AND name = ?
+            LIMIT 1
         """, (access_key, email, name))
         existing_record = cursor.fetchone()
 
         if existing_record:
-            return jsonify({"message": "access key already exists"}), 400
+            return jsonify({"message": "Interview already started or exists for this user"}), 400 
         return False
 
 
 def get_messages(access_key, name, email):
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
-
-        # Verify the access key exists
-        cursor.execute("""
-            SELECT id FROM interview_status 
-            WHERE access_key = ? AND email = ? AND name = ?
-        """, (access_key, email, name))
-        message_count = cursor.fetchone()[0]
-
-        if message_count == 0:
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "No messages found for this access key",
-                    }
-                ),
-                404,
-            )
 
         # Retrieve all messages
         cursor.execute(
@@ -85,6 +68,21 @@ def get_messages(access_key, name, email):
             (access_key, email, name),
         )
 
+        # Use fetchall inside the 'with' block
+        rows = cursor.fetchall() 
+
+        # Check if any messages were found *after* fetching
+        if not rows:
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "message": "No messages found for this access key, name, and email combination.",
+                    }
+                ),
+                404,
+            )
+
         # Format the response
         messages = [
             {
@@ -93,20 +91,21 @@ def get_messages(access_key, name, email):
                 "timestamp": row[2],
                 "role": row[3],  # 'user' or 'assistant' typically
             }
-            for row in cursor.fetchall()
+            for row in rows
         ]
 
         return jsonify(
             {
                 "status": "success",
                 "access_key": access_key,
-                "message_count": message_count,
+                "message_count": len(messages),
                 "messages": messages,
             }, 200
         )
 
         
 def get_history(access_key, name, email):
+    history = []
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -118,13 +117,16 @@ def get_history(access_key, name, email):
             """,
             (access_key, email, name),
         )
+        # Fetch results *inside* the 'with' block
+        rows = cursor.fetchall() 
+        # Format into list of dictionaries
+        history = [{"role": row[0], "content": row[1]} for row in rows]
 
-    messages = cursor.fetchall()
-
-    return messages
+    return history # Return the formatted list
 
     
 def get_applicants(access_key):
+    applicants_list = []
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -132,11 +134,15 @@ def get_applicants(access_key):
             SELECT DISTINCT name, email
             FROM messages 
             WHERE access_key = ? 
-            ORDER BY date_created ASC
-            """,
+            ORDER BY date_created ASC -- Ordering might not be meaningful with DISTINCT name, email
+            """,                       # Consider ORDER BY name, email if needed
             (access_key,),
         )
+        # Fetch results *inside* the 'with' block
+        applicants_list = cursor.fetchall() 
 
-    applicants = cursor.fetchall()
+    # Format if desired, e.g., list of dicts [{'name': n, 'email': e}, ...]
+    formatted_applicants = [{"name": name, "email": email} for name, email in applicants_list]
 
-    return jsonify({"status:": "success", "applicants": applicants}, 200)
+    # Added colon in status key name for consistency
+    return jsonify({"status": "success", "applicants": formatted_applicants}), 200
