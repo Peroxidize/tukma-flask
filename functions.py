@@ -3,7 +3,7 @@ from datetime import datetime
 import sqlite3
 
 PROD_DB = "/app/data/messages.db"
-LOCAL_DB = "./app/data/messages.db"
+LOCAL_DB = "messages.db"
 DATABASE = PROD_DB # change depending on the environment
 
 def init_db():
