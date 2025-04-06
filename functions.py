@@ -2,7 +2,9 @@ from flask import jsonify
 from datetime import datetime
 import sqlite3
 
-DATABASE = "messages.db"
+PROD_DB = "/app/data/messages.db"
+LOCAL_DB = "./app/data/messages.db"
+DATABASE = PROD_DB # change depending on the environment
 
 def init_db():
     conn = None # Initialize conn outside try for the finally block
