@@ -119,7 +119,7 @@ def get_applicants(access_key):
             SELECT DISTINCT name, email
             FROM messages 
             WHERE access_key = ? 
-            ORDER BY date_created ASC -- Ordering might not be meaningful with DISTINCT name, email
+            ORDER BY name, email ASC -- Ordering might not be meaningful with DISTINCT name, email
             """,                       # Consider ORDER BY name, email if needed
             (access_key,),
         )
@@ -130,4 +130,4 @@ def get_applicants(access_key):
     formatted_applicants = [{"name": name, "email": email} for name, email in applicants_list]
 
     # Added colon in status key name for consistency
-    return jsonify({"status": "success", "applicants": formatted_applicants}), 200
+    return formatted_applicants

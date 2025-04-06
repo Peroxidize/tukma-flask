@@ -61,7 +61,8 @@ def messages(access_key, name, email):
 
 @app.route("/get_applicants/<access_key>", methods=["GET"])
 def applicants(access_key):
-    return get_applicants(access_key)
+    applicants = get_applicants(access_key)
+    return jsonify({"status": "success", "applicants": applicants}), 200
 
 
 @app.route("/reply", methods=["POST"])
