@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from flask_socketio import SocketIO
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
@@ -8,7 +7,6 @@ from functions import check_record, init_db, insert_msg, get_messages, get_histo
 load_dotenv()
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
@@ -105,4 +103,4 @@ def reply():
 
 if __name__ == "__main__":
     # Initialize the database when the app starts
-    socketio.run(app, debug=True)
+    app.run(debug=True)
