@@ -137,3 +137,41 @@ def get_applicants(access_key):
 
     # Added colon in status key name for consistency
     return formatted_applicants
+    
+    
+def done_interviews(access_key):
+    finished_interview = []
+    with sqlite3.connect(DATABASE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT name, email
+            FROM messages 
+            WHERE content LIKE ? AND access_key = ?
+            """,
+            ('%Thank you for your time and insights%', access_key)
+        )
+        finished_interview = cursor.fetchall()
+        formatted = [{"name": name, "email": email} for name, email in finished_interview]
+    return formatted
+
+    
+def check_interview(access_key, name, email):
+    with sqlite3.connect(DATABASE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT 1
+            FROM messages 
+            WHERE content LIKE ?
+              AND access_key = ?
+              AND name = ?
+              AND email = ?
+            LIMIT 1
+            """,
+            ('%Thank you for your time and insights%', access_key, name, email)
+        )
+        result = cursor.fetchone()
+        if result:
+            return True
+    return False
